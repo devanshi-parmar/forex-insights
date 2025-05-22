@@ -3,6 +3,8 @@ import {
   newsArticles, type NewsArticle, type InsertNewsArticle,
   forexSignals, type ForexSignal, type InsertForexSignal
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 
 // Interface for storage operations
 export interface IStorage {
@@ -24,102 +26,120 @@ export interface IStorage {
   createForexSignal(signal: InsertForexSignal): Promise<ForexSignal>;
 }
 
-// In-memory storage implementation
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private newsArticles: Map<number, NewsArticle>;
-  private forexSignals: Map<number, ForexSignal>;
-  
-  private userId: number;
-  private newsArticleId: number;
-  private forexSignalId: number;
-  
-  constructor() {
-    this.users = new Map();
-    this.newsArticles = new Map();
-    this.forexSignals = new Map();
-    
-    this.userId = 1;
-    this.newsArticleId = 1;
-    this.forexSignalId = 1;
-  }
-  
-  // User methods (keeping existing ones)
+// Database storage implementation
+export class DatabaseStorage implements IStorage {
+  // User methods
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
   
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
   
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.userId++;
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
   
   // News article methods
   async getNewsArticles(limit = 10, offset = 0): Promise<NewsArticle[]> {
-    const articles = Array.from(this.newsArticles.values())
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(offset, offset + limit);
+    const articles = await db
+      .select()
+      .from(newsArticles)
+      .orderBy(desc(newsArticles.createdAt))
+      .limit(limit)
+      .offset(offset);
     
     return articles;
   }
   
   async getNewsArticleById(id: number): Promise<NewsArticle | undefined> {
-    return this.newsArticles.get(id);
+    const [article] = await db
+      .select()
+      .from(newsArticles)
+      .where(eq(newsArticles.id, id));
+    
+    return article;
   }
   
   async getNewsArticlesBySentiment(sentiment: string, limit = 10): Promise<NewsArticle[]> {
-    const articles = Array.from(this.newsArticles.values())
-      .filter(article => article.sentiment === sentiment)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, limit);
+    const articles = await db
+      .select()
+      .from(newsArticles)
+      .where(eq(newsArticles.sentiment, sentiment))
+      .orderBy(desc(newsArticles.createdAt))
+      .limit(limit);
     
     return articles;
   }
   
   async createNewsArticle(insertArticle: InsertNewsArticle): Promise<NewsArticle> {
-    const id = this.newsArticleId++;
-    const createdAt = new Date();
-    const article: NewsArticle = { ...insertArticle, id, createdAt };
-    this.newsArticles.set(id, article);
+    // Set default values for nullable fields if not provided
+    const articleToInsert = {
+      ...insertArticle,
+      content: insertArticle.content || null,
+      sentimentScore: insertArticle.sentimentScore !== undefined ? insertArticle.sentimentScore : null,
+      keywords: insertArticle.keywords || null
+    };
+    
+    const [article] = await db
+      .insert(newsArticles)
+      .values(articleToInsert)
+      .returning();
+    
     return article;
   }
   
   // Forex signal methods
   async getForexSignals(limit = 10, offset = 0): Promise<ForexSignal[]> {
-    const signals = Array.from(this.forexSignals.values())
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(offset, offset + limit);
+    const signals = await db
+      .select()
+      .from(forexSignals)
+      .orderBy(desc(forexSignals.createdAt))
+      .limit(limit)
+      .offset(offset);
     
     return signals;
   }
   
   async getForexSignalById(id: number): Promise<ForexSignal | undefined> {
-    return this.forexSignals.get(id);
+    const [signal] = await db
+      .select()
+      .from(forexSignals)
+      .where(eq(forexSignals.id, id));
+    
+    return signal;
   }
   
   async getForexSignalsByCurrencyPair(currencyPair: string): Promise<ForexSignal[]> {
-    const signals = Array.from(this.forexSignals.values())
-      .filter(signal => signal.currencyPair === currencyPair)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const signals = await db
+      .select()
+      .from(forexSignals)
+      .where(eq(forexSignals.currencyPair, currencyPair))
+      .orderBy(desc(forexSignals.createdAt));
     
     return signals;
   }
   
   async createForexSignal(insertSignal: InsertForexSignal): Promise<ForexSignal> {
-    const id = this.forexSignalId++;
-    const createdAt = new Date();
-    const signal: ForexSignal = { ...insertSignal, id, createdAt };
-    this.forexSignals.set(id, signal);
+    // Set default values for nullable fields if not provided
+    const signalToInsert = {
+      ...insertSignal,
+      sentimentScore: insertSignal.sentimentScore !== undefined ? insertSignal.sentimentScore : null,
+      newsArticleIds: insertSignal.newsArticleIds || null
+    };
+    
+    const [signal] = await db
+      .insert(forexSignals)
+      .values(signalToInsert)
+      .returning();
+    
     return signal;
   }
 }
 
-export const storage = new MemStorage();
+// Export the database storage implementation
+export const storage = new DatabaseStorage();
